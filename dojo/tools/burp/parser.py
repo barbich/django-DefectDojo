@@ -161,7 +161,7 @@ def get_item(item_node, test):
     # protocol = rhost.group(1)
     # host = rhost.group(4)
     protocol = urlparse(url_host).scheme
-    host = urlparse(url_host).nettloc
+    host = urlparse(url_host).netloc
 
     port = 80
     if protocol == 'https':
@@ -183,9 +183,44 @@ def get_item(item_node, test):
 
     unsaved_req_resp = list()
     for request_response in item_node.findall('./requestresponse'):
-        request = request_response.findall('request')[0].text
-        response = request_response.findall('response')[0].text
+        try:
+            request = request_response.findall('request')[0].text
+        except:
+            request = ""
+        try:
+            response = request_response.findall('response')[0].text
+        except:
+            response = ""
         unsaved_req_resp.append({"req": request, "resp": response})
+    collab_details = list()
+    collab_text = None
+    for event in item_node.findall('./collaboratorEvent'):
+        collab_details.append(event.findall('interactionType')[0].text)
+        collab_details.append(event.findall('originIp')[0].text)
+        collab_details.append(event.findall('time')[0].text)
+        if collab_details[0] == 'DNS':
+            collab_details.append(event.findall('lookupType')[0].text)
+            collab_details.append(event.findall('lookupHost')[0].text)
+            collab_text = "The Collaborator server received a " + collab_details[0] + " lookup of type " + collab_details[3] + \
+                " for the domain name " + \
+                collab_details[4] + " at " + collab_details[2] + \
+                " originating from " + collab_details[1] + " ."
+
+        for request_response in event.findall('./requestresponse'):
+            try:
+                request = request_response.findall('request')[0].text
+            except:
+                request = ""
+            try:
+                response = request_response.findall('response')[0].text
+            except:
+                response = ""
+            unsaved_req_resp.append({"req": request, "resp": response})
+        if collab_details[0] == 'HTTP':
+            collab_text = "The Collaborator server received an " + \
+                collab_details[0] + " request at " + collab_details[2] + \
+                " originating from " + collab_details[1] + " ."
+
 
     try:
         dupe_endpoint = Endpoint.objects.get(
@@ -229,7 +264,7 @@ def get_item(item_node, test):
         else:
             endpoints = [endpoint, dupe_endpoint]
 
-    if len(endpoints) is 0:
+    if len(endpoints) == 0:
         endpoints = [endpoint]
 
     text_maker = html2text.HTML2Text()
@@ -242,6 +277,8 @@ def get_item(item_node, test):
     detail = do_clean(item_node.findall('issueDetail'))
     if detail:
         detail = text_maker.handle(detail)
+        if collab_text:
+            detail = text_maker.handle(detail + '<p>' + collab_text + '</p>')
 
     remediation = do_clean(item_node.findall('remediationBackground'))
     if remediation:

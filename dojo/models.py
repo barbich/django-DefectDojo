@@ -962,6 +962,7 @@ class Test(models.Model):
     engagement = models.ForeignKey(Engagement, editable=False)
     lead = models.ForeignKey(User, editable=True, null=True)
     test_type = models.ForeignKey(Test_Type)
+    title = models.CharField(max_length=255, null=True, blank=True)
     description = models.TextField(null=True, blank=True)
     target_start = models.DateTimeField()
     target_end = models.DateTimeField()
@@ -981,8 +982,9 @@ class Test(models.Model):
         return self.test_type.name
 
     def __unicode__(self):
-        return "%s (%s)" % (self.test_type,
-                            self.target_start.strftime("%b %d, %Y"))
+        if self.title:
+            return u"%s (%s)" % (self.title, self.test_type)
+        return unicode(self.test_type)
 
     def get_breadcrumbs(self):
         bc = self.engagement.get_breadcrumbs()
@@ -1060,7 +1062,7 @@ class Finding(models.Model):
     sourcefile = models.TextField(null=True, blank=True, editable=False)
     param = models.TextField(null=True, blank=True, editable=False)
     payload = models.TextField(null=True, blank=True, editable=False)
-    hash_code = models.TextField(null=True, blank=True, editable=True)
+    hash_code = models.TextField(null=True, blank=True, editable=False)
 
     line = models.IntegerField(null=True, blank=True,
                                verbose_name="Line number")
@@ -1078,15 +1080,21 @@ class Finding(models.Model):
         ordering = ('numerical_severity', '-date', 'title')
 
     def compute_hash_code(self):
-        hash_string = self.title + str(self.cwe) + str(self.line) + str(self.file_path)
+        hash_string = self.title + str(self.cwe) + str(self.line) + str(self.file_path) + self.description
+
         if self.dynamic_finding:
             endpoint_str = u''
             for e in self.endpoints.all():
                 endpoint_str += str(e)
             if endpoint_str:
                 hash_string = hash_string + endpoint_str
-        hash_string = hash_string.strip()
-        return hashlib.sha256(hash_string.encode('utf-8')).hexdigest()
+        try:
+            hash_string = hash_string.encode('utf-8').strip()
+            return hashlib.sha256(hash_string.encode('utf-8')).hexdigest()
+        except:
+            hash_string = hash_string.strip()
+            return hashlib.sha256(hash_string).hexdigest()
+
 
     def duplicate_finding_set(self):
         return self.duplicate_list.all().order_by('title')
@@ -1202,7 +1210,15 @@ class Finding(models.Model):
         long_desc = ''
         long_desc += '*' + self.title + '*\n\n'
         long_desc += '*Severity:* ' + self.severity + '\n\n'
-        long_desc += '*Systems*: \n'
+        long_desc += '*Product/Engagement:* ' + self.test.engagement.product.name + ' / ' + self.test.engagement.name + '\n\n'
+        if self.test.engagement.branch_tag:
+            long_desc += '*Branch/Tag:* ' + self.test.engagement.branch_tag + '\n\n'
+        if self.test.engagement.build_id:
+            long_desc += '*BuildID:* ' + self.test.engagement.build_id + '\n\n'
+        if self.test.engagement.commit_hash:
+            long_desc += '*Commit hash:* ' + self.test.engagement.commit_hash + '\n\n'
+        long_desc += '*Systems*: \n\n'
+
         for e in self.endpoints.all():
             long_desc += str(e) + '\n\n'
         long_desc += '*Description*: \n' + self.description + '\n\n'
@@ -1219,10 +1235,11 @@ class Finding(models.Model):
             from dojo.utils import apply_cwe_to_template
             self = apply_cwe_to_template(self)
             super(Finding, self).save(*args, **kwargs)
-            # Only compute hash code for new findings.
-            self.hash_code = self.compute_hash_code()
         else:
             super(Finding, self).save(*args, **kwargs)
+        # Compute hash code before dedupe
+        if self.hash_code is None:
+            self.hash_code = self.compute_hash_code()
         self.found_by.add(self.test.test_type)
         if self.test.test_type.static_tool:
             self.static_finding = True

@@ -140,6 +140,12 @@ class Product_TypeForm(forms.ModelForm):
         fields = ['name', 'critical_product', 'key_product']
 
 
+class Delete_Product_TypeForm(forms.ModelForm):
+    class Meta:
+        model = Product_Type
+        exclude = ['name', 'critical_product', 'key_product']
+
+
 class Test_TypeForm(forms.ModelForm):
     class Meta:
         model = Test_Type
@@ -150,6 +156,12 @@ class Development_EnvironmentForm(forms.ModelForm):
     class Meta:
         model = Development_Environment
         fields = ['name']
+
+
+class Delete_Dev_EnvironmentForm(forms.ModelForm):
+    class Meta:
+        model = Development_Environment
+        exclude = ['name']
 
 
 class ProductForm(forms.ModelForm):
@@ -235,6 +247,7 @@ class Product_TypeProductForm(forms.ModelForm):
 
 class ImportScanForm(forms.Form):
     SCAN_TYPE_CHOICES = (("", "Please Select a Scan Type"),
+                         ("Netsparker Scan", "Netsparker Scan"),
                          ("Burp Scan", "Burp Scan"),
                          ("Nessus Scan", "Nessus Scan"),
                          ("Nmap Scan", "Nmap Scan"),
@@ -263,7 +276,7 @@ class ImportScanForm(forms.Form):
                          ("Acunetix Scan", "Acunetix Scan"),
                          ("Fortify Scan", "Fortify Scan"),
                          ("Gosec Scanner", "Gosec Scanner"),
-                         ("SonarQube Scan", "SonarQube Scan"),
+                         # ("SonarQube Scan", "SonarQube Scan"),
                          ("MobSF Scan", "MobSF Scan"),
                          ("Trufflehog Scan", "Trufflehog Scan"),
                          ("Nikto Scan", "Nikto Scan"),
@@ -273,7 +286,10 @@ class ImportScanForm(forms.Form):
                          ("AWS Scout2 Scan", "AWS Scout2 Scan"),
                          ("AWS Prowler Scan", "AWS Prowler Scan"),
                          ("PHP Security Audit v2", "PHP Security Audit v2"),
-                         ("Safety Scan", "Safety Scan"))
+                         ("Safety Scan", "Safety Scan"),
+                         ("DawnScanner Scan", "DawnScanner Scan"),
+                         ("Anchore Engine Scan", "Anchore Engine Scan"),
+                         ("Bundler-Audit Scan", "Bundler-Audit Scan"))
 
     SORTED_SCAN_TYPE_CHOICES = sorted(SCAN_TYPE_CHOICES, key=lambda x: x[1])
 
@@ -376,6 +392,9 @@ class MergeFindings(forms.ModelForm):
     mark_tag_finding = forms.BooleanField(label="Tag Merged Finding", initial=True, required=False,
                                            help_text="Creates a tag titled 'merged' for the finding that will be merged. If the 'Finding Action' is set to 'inactive' the inactive findings will be tagged with 'merged-inactive'.")
 
+    append_reference = forms.BooleanField(label="Append Reference", initial=True, required=False,
+                                            help_text="Reference in all findings will be appended into the merged finding.")
+
     finding_action = forms.ChoiceField(
         required=True,
         choices=FINDING_ACTION,
@@ -395,11 +414,11 @@ class MergeFindings(forms.ModelForm):
             queryset=findings, required=True, label="Findings to Merge",
             widget=forms.widgets.SelectMultiple(attrs={'size': 10}),
             help_text=('Select the findings to merge.'))
-        self.fields.keyOrder = ['finding_to_merge_into', 'findings_to_merge', 'append_description', 'add_endpoints']
+        self.fields.keyOrder = ['finding_to_merge_into', 'findings_to_merge', 'append_description', 'add_endpoints', 'append_reference']
 
     class Meta:
         model = Finding
-        fields = ['append_description', 'add_endpoints']
+        fields = ['append_description', 'add_endpoints', 'append_reference']
 
 
 class UploadRiskForm(forms.ModelForm):
@@ -661,6 +680,7 @@ class DeleteEngagementForm(forms.ModelForm):
 
 
 class TestForm(forms.ModelForm):
+    title = forms.CharField(max_length=255, required=False)
     test_type = forms.ModelChoiceField(queryset=Test_Type.objects.all().order_by('name'))
     environment = forms.ModelChoiceField(
         queryset=Development_Environment.objects.all().order_by('name'))
@@ -685,7 +705,8 @@ class TestForm(forms.ModelForm):
 
     class Meta:
         model = Test
-        fields = ['test_type', 'target_start', 'target_end', 'environment', 'percent_complete', 'tags', 'lead']
+        fields = ['title', 'test_type', 'target_start', 'target_end',
+                  'environment', 'percent_complete', 'tags', 'lead']
 
 
 class DeleteTestForm(forms.ModelForm):
@@ -941,6 +962,7 @@ class DeleteFindingTemplateForm(forms.ModelForm):
 
 class FindingBulkUpdateForm(forms.ModelForm):
     status = forms.BooleanField(required=False)
+    push_to_jira = forms.BooleanField(required=False)
 
     def __init__(self, *args, **kwargs):
         super(FindingBulkUpdateForm, self).__init__(*args, **kwargs)

@@ -13,15 +13,17 @@ from django.http import HttpResponseRedirect, Http404, HttpResponse
 from django.shortcuts import render, get_object_or_404
 from django.views.decorators.cache import cache_page
 from django.utils import timezone
+from django.contrib.admin.utils import NestedObjects
+from django.db import DEFAULT_DB_ALIAS
 
 from dojo.filters import TemplateFindingFilter
 from dojo.forms import NoteForm, TestForm, FindingForm, \
     DeleteTestForm, AddFindingForm, \
     ImportScanForm, ReImportScanForm, FindingBulkUpdateForm, JIRAFindingForm
-from dojo.models import Product, Finding, Test, Notes, BurpRawRequestResponse, Endpoint, Stub_Finding, Finding_Template, JIRA_PKey, Cred_Mapping, Dojo_User
+from dojo.models import Product, Finding, Test, Notes, BurpRawRequestResponse, Endpoint, Stub_Finding, Finding_Template, JIRA_PKey, Cred_Mapping, Dojo_User, JIRA_Issue
 from dojo.tools.factory import import_parser_factory
-from dojo.utils import get_page_items, add_breadcrumb, get_cal_event, message, process_notifications, get_system_setting, create_notification, Product_Tab, calculate_grade
-from dojo.tasks import add_issue_task
+from dojo.utils import get_page_items, add_breadcrumb, get_cal_event, message, process_notifications, get_system_setting, create_notification, Product_Tab, calculate_grade, log_jira_alert
+from dojo.tasks import add_issue_task, update_issue_task
 
 logger = logging.getLogger(__name__)
 
@@ -117,13 +119,6 @@ def delete_test(request, tid):
     eng = test.engagement
     form = DeleteTestForm(instance=test)
 
-    from django.contrib.admin.utils import NestedObjects
-    from django.db import DEFAULT_DB_ALIAS
-
-    collector = NestedObjects(using=DEFAULT_DB_ALIAS)
-    collector.collect([test])
-    rels = collector.nested()
-
     if request.method == 'POST':
         if 'id' in request.POST and str(test.id) == request.POST['id']:
             form = DeleteTestForm(request.POST, instance=test)
@@ -135,6 +130,10 @@ def delete_test(request, tid):
                                      'Test and relationships removed.',
                                      extra_tags='alert-success')
                 return HttpResponseRedirect(reverse('view_engagement', args=(eng.id,)))
+
+    collector = NestedObjects(using=DEFAULT_DB_ALIAS)
+    collector.collect([test])
+    rels = collector.nested()
 
     product_tab = Product_Tab(test.engagement.product.id, title="Delete Test", tab="engagements")
     product_tab.setEngagement(test.engagement)
@@ -443,6 +442,17 @@ def finding_bulk_update(request, tid):
                 # Update the grade as bulk edits don't go through save
                 if form.cleaned_data['severity'] or form.cleaned_data['status']:
                     calculate_grade(test.engagement.product)
+
+                for finding in finds:
+                    if JIRA_PKey.objects.filter(product=finding.test.engagement.product).count() == 0:
+                        log_jira_alert('Finding cannot be pushed to jira as there is no jira configuration for this product.', finding)
+                    else:
+                        old_status = finding.status()
+                        if form.cleaned_data['push_to_jira']:
+                            if JIRA_Issue.objects.filter(finding=finding).exists():
+                                update_issue_task.delay(finding, old_status, True)
+                            else:
+                                add_issue_task.delay(finding, True)
 
                 messages.add_message(request,
                                      messages.SUCCESS,

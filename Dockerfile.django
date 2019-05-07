@@ -17,6 +17,7 @@ RUN \
   rm -rf /var/lib/apt/lists && \
   true
 RUN pip install --no-cache-dir --upgrade pip
+# COPY --from=defectdojo/defectdojo-build:latest /tmp/wheels /tmp/wheels
 COPY --from=defectdojo/defectdojo-build:latest /tmp/wheels /tmp/wheels
 COPY requirements.txt ./
 RUN pip install \

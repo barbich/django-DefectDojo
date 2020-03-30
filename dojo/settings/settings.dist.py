@@ -8,6 +8,7 @@ root = environ.Path(__file__) - 3  # Three folders back
 env = environ.Env(
     # Set casting and default values
     DD_DEBUG=(bool, False),
+    DD_DJANGO_METRICS_ENABLED=(bool, False),
     DD_LOGIN_REDIRECT_URL=(str, '/'),
     DD_DJANGO_ADMIN_ENABLED=(bool, False),
     DD_SESSION_COOKIE_HTTPONLY=(bool, True),
@@ -15,8 +16,10 @@ env = environ.Env(
     DD_SECURE_SSL_REDIRECT=(bool, False),
     DD_SECURE_HSTS_INCLUDE_SUBDOMAINS=(bool, False),
     DD_SECURE_HSTS_SECONDS=(int, 31536000),  # One year expiration
+    DD_SESSION_COOKIE_SECURE=(bool, False),
     DD_CSRF_COOKIE_SECURE=(bool, False),
-    DD_SECURE_BROWSER_XSS_FILTER=(bool, False),
+    DD_SECURE_BROWSER_XSS_FILTER=(bool, True),
+    DD_SECURE_CONTENT_TYPE_NOSNIFF=(bool, True),
     DD_TIME_ZONE=(str, 'UTC'),
     DD_LANG=(str, 'en-us'),
     DD_WKHTMLTOPDF=(str, '/usr/local/bin/wkhtmltopdf'),
@@ -58,12 +61,37 @@ env = environ.Env(
     DD_DATABASE_ENGINE=(str, 'django.db.backends.mysql'),
     DD_DATABASE_HOST=(str, 'mysql'),
     DD_DATABASE_NAME=(str, 'defectdojo'),
+    # default django database name for testing is test_<dbname>
+    DD_TEST_DATABASE_NAME=(str, 'test_defectdojo'),
     DD_DATABASE_PASSWORD=(str, 'defectdojo'),
     DD_DATABASE_PORT=(int, 3306),
     DD_DATABASE_USER=(str, 'defectdojo'),
     DD_SECRET_KEY=(str, '.'),
     DD_CREDENTIAL_AES_256_KEY=(str, '.'),
-    DD_DATA_UPLOAD_MAX_MEMORY_SIZE=(int, 8388608)  # Max post size set to 8mb
+    DD_DATA_UPLOAD_MAX_MEMORY_SIZE=(int, 8388608),  # Max post size set to 8mb
+    DD_SOCIAL_AUTH_TRAILING_SLASH=(bool, True),
+    DD_SOCIAL_AUTH_AUTH0_OAUTH2_ENABLED=(bool, False),
+    DD_SOCIAL_AUTH_AUTH0_KEY=(str, ''),
+    DD_SOCIAL_AUTH_AUTH0_SECRET=(str, ''),
+    DD_SOCIAL_AUTH_AUTH0_DOMAIN=(str, ''),
+    DD_SOCIAL_AUTH_AUTH0_SCOPE=(list, ['openid', 'profile', 'email']),
+    DD_SOCIAL_AUTH_GOOGLE_OAUTH2_ENABLED=(bool, False),
+    DD_SOCIAL_AUTH_GOOGLE_OAUTH2_KEY=(str, ''),
+    DD_SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET=(str, ''),
+    DD_SOCIAL_AUTH_OKTA_OAUTH2_ENABLED=(bool, False),
+    DD_SOCIAL_AUTH_OKTA_OAUTH2_KEY=(str, ''),
+    DD_SOCIAL_AUTH_OKTA_OAUTH2_SECRET=(str, ''),
+    DD_SOCIAL_AUTH_OKTA_OAUTH2_API_URL=(str, 'https://{your-org-url}/oauth2/default'),
+    DD_SOCIAL_AUTH_AZUREAD_TENANT_OAUTH2_ENABLED=(bool, False),
+    DD_SOCIAL_AUTH_AZUREAD_TENANT_OAUTH2_KEY=(str, ''),
+    DD_SOCIAL_AUTH_AZUREAD_TENANT_OAUTH2_SECRET=(str, ''),
+    DD_SOCIAL_AUTH_AZUREAD_TENANT_OAUTH2_TENANT_ID=(str, ''),
+    DD_SOCIAL_AUTH_AZUREAD_TENANT_OAUTH2_RESOURCE=(str, 'https://graph.microsoft.com/'),
+    DD_SOCIAL_AUTH_GITLAB_OAUTH2_ENABLED=(bool, False),
+    DD_SOCIAL_AUTH_GITLAB_KEY=(str, ''),
+    DD_SOCIAL_AUTH_GITLAB_SECRET=(str, ''),
+    DD_SOCIAL_AUTH_GITLAB_API_URL=(str, 'https://gitlab.com'),
+    DD_SOCIAL_AUTH_GITLAB_SCOPE=(list, ['api', 'read_user', 'openid', 'profile', 'email']),
 )
 
 
@@ -146,6 +174,9 @@ else:
         'default': {
             'ENGINE': env('DD_DATABASE_ENGINE'),
             'NAME': env('DD_DATABASE_NAME'),
+            'TEST': {
+                'NAME': env('DD_TEST_DATABASE_NAME'),
+            },
             'USER': env('DD_DATABASE_USER'),
             'PASSWORD': env('DD_DATABASE_PASSWORD'),
             'HOST': env('DD_DATABASE_HOST'),
@@ -191,8 +222,7 @@ STATICFILES_DIRS = (
     # Put strings here, like "/home/html/static" or "C:/www/django/static".
     # Always use forward slashes, even on Windows.
     # Don't forget to use absolute paths, not relative paths.
-    os.path.join(os.path.dirname(DOJO_ROOT), 'components', 'node_modules',
-                 '@yarn_components'),
+    os.path.join(os.path.dirname(DOJO_ROOT), 'components', 'node_modules'),
 )
 
 # List of finder classes that know how to find static files in
@@ -230,8 +260,72 @@ URL_PREFIX = env('DD_URL_PREFIX')
 # ------------------------------------------------------------------------------
 
 LOGIN_REDIRECT_URL = env('DD_LOGIN_REDIRECT_URL')
-
 LOGIN_URL = '/login'
+
+# These are the individidual modules supported by social-auth
+AUTHENTICATION_BACKENDS = (
+    'social_core.backends.auth0.Auth0OAuth2',
+    'social_core.backends.google.GoogleOAuth2',
+    'dojo.okta.OktaOAuth2',
+    'social_core.backends.azuread_tenant.AzureADTenantOAuth2',
+    'social_core.backends.gitlab.GitLabOAuth2',
+    'django.contrib.auth.backends.RemoteUserBackend',
+    'django.contrib.auth.backends.ModelBackend',
+)
+
+SOCIAL_AUTH_PIPELINE = (
+    'social_core.pipeline.social_auth.social_details',
+    'dojo.pipeline.social_uid',
+    'social_core.pipeline.social_auth.auth_allowed',
+    'social_core.pipeline.social_auth.social_user',
+    'social_core.pipeline.user.get_username',
+    'social_core.pipeline.social_auth.associate_by_email',
+    'social_core.pipeline.user.create_user',
+    'dojo.pipeline.modify_permissions',
+    'social_core.pipeline.social_auth.associate_user',
+    'social_core.pipeline.social_auth.load_extra_data',
+    'social_core.pipeline.user.user_details',
+)
+
+CLASSIC_AUTH_ENABLED = True
+
+SOCIAL_AUTH_STRATEGY = 'social_django.strategy.DjangoStrategy'
+SOCIAL_AUTH_STORAGE = 'social_django.models.DjangoStorage'
+SOCIAL_AUTH_ADMIN_USER_SEARCH_FIELDS = ['username', 'first_name', 'last_name', 'email']
+SOCIAL_AUTH_USERNAME_IS_FULL_EMAIL = True
+
+GOOGLE_OAUTH_ENABLED = env('DD_SOCIAL_AUTH_GOOGLE_OAUTH2_ENABLED')
+SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = env('DD_SOCIAL_AUTH_GOOGLE_OAUTH2_KEY')
+SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = env('DD_SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET')
+SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS = ['']
+SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_EMAILS = ['']
+SOCIAL_AUTH_LOGIN_ERROR_URL = '/login'
+SOCIAL_AUTH_BACKEND_ERROR_URL = '/login'
+
+OKTA_OAUTH_ENABLED = env('DD_SOCIAL_AUTH_OKTA_OAUTH2_ENABLED')
+SOCIAL_AUTH_OKTA_OAUTH2_KEY = env('DD_SOCIAL_AUTH_OKTA_OAUTH2_KEY')
+SOCIAL_AUTH_OKTA_OAUTH2_SECRET = env('DD_SOCIAL_AUTH_OKTA_OAUTH2_SECRET')
+SOCIAL_AUTH_OKTA_OAUTH2_API_URL = env('DD_SOCIAL_AUTH_OKTA_OAUTH2_API_URL')
+
+AZUREAD_TENANT_OAUTH2_ENABLED = env('DD_SOCIAL_AUTH_AZUREAD_TENANT_OAUTH2_ENABLED')
+SOCIAL_AUTH_AZUREAD_TENANT_OAUTH2_KEY = env('DD_SOCIAL_AUTH_AZUREAD_TENANT_OAUTH2_KEY')
+SOCIAL_AUTH_AZUREAD_TENANT_OAUTH2_SECRET = env('DD_SOCIAL_AUTH_AZUREAD_TENANT_OAUTH2_SECRET')
+SOCIAL_AUTH_AZUREAD_TENANT_OAUTH2_TENANT_ID = env('DD_SOCIAL_AUTH_AZUREAD_TENANT_OAUTH2_TENANT_ID')
+SOCIAL_AUTH_AZUREAD_TENANT_OAUTH2_RESOURCE = env('DD_SOCIAL_AUTH_AZUREAD_TENANT_OAUTH2_RESOURCE')
+
+GITLAB_OAUTH2_ENABLED = env('DD_SOCIAL_AUTH_GITLAB_OAUTH2_ENABLED')
+SOCIAL_AUTH_GITLAB_KEY = env('DD_SOCIAL_AUTH_GITLAB_KEY')
+SOCIAL_AUTH_GITLAB_SECRET = env('DD_SOCIAL_AUTH_GITLAB_SECRET')
+SOCIAL_AUTH_GITLAB_API_URL = env('DD_SOCIAL_AUTH_GITLAB_API_URL')
+SOCIAL_AUTH_GITLAB_SCOPE = env('DD_SOCIAL_AUTH_GITLAB_SCOPE')
+
+AUTH0_OAUTH2_ENABLED = env('DD_SOCIAL_AUTH_AUTH0_OAUTH2_ENABLED')
+SOCIAL_AUTH_AUTH0_KEY = env('DD_SOCIAL_AUTH_AUTH0_KEY')
+SOCIAL_AUTH_AUTH0_SECRET = env('DD_SOCIAL_AUTH_AUTH0_SECRET')
+SOCIAL_AUTH_AUTH0_DOMAIN = env('DD_SOCIAL_AUTH_AUTH0_DOMAIN')
+SOCIAL_AUTH_AUTH0_SCOPE = env('DD_SOCIAL_AUTH_AUTH0_SCOPE')
+SOCIAL_AUTH_TRAILING_SLASH = env('DD_SOCIAL_AUTH_TRAILING_SLASH')
+
 LOGIN_EXEMPT_URLS = (
     r'^%sstatic/' % URL_PREFIX,
     r'^%swebhook/' % URL_PREFIX,
@@ -239,6 +333,8 @@ LOGIN_EXEMPT_URLS = (
     r'^%sreports/cover$' % URL_PREFIX,
     r'^%sfinding/image/(?P<token>[^/]+)$' % URL_PREFIX,
     r'^%sapi/v2/' % URL_PREFIX,
+    r'complete/',
+    r'empty_survey/([\d]+)/answer'
 )
 
 # ------------------------------------------------------------------------------
@@ -253,6 +349,9 @@ SECURE_SSL_REDIRECT = env('DD_SECURE_SSL_REDIRECT')
 # mode=block header on all responses that do not already have it.
 SECURE_BROWSER_XSS_FILTER = env('DD_SECURE_BROWSER_XSS_FILTER')
 
+# If True, the SecurityMiddleware sets the X-Content-Type-Options: nosniff;
+SECURE_CONTENT_TYPE_NOSNIFF = env('DD_SECURE_CONTENT_TYPE_NOSNIFF')
+
 # Whether to use HTTPOnly flag on the session cookie.
 # If this is set to True, client-side JavaScript will not to be able to access the session cookie.
 SESSION_COOKIE_HTTPONLY = env('DD_SESSION_COOKIE_HTTPONLY')
@@ -261,9 +360,12 @@ SESSION_COOKIE_HTTPONLY = env('DD_SESSION_COOKIE_HTTPONLY')
 # client-side JavaScript will not to be able to access the CSRF cookie.
 CSRF_COOKIE_HTTPONLY = env('DD_CSRF_COOKIE_HTTPONLY')
 
-# Whether to use a secure cookie for the CSRF cookie. If this is set to True,
+# Whether to use a secure cookie for the session cookie. If this is set to True,
 # the cookie will be marked as secure, which means browsers may ensure that the
 # cookie is only sent with an HTTPS connection.
+SESSION_COOKIE_SECURE = env('DD_SESSION_COOKIE_SECURE')
+
+# Whether to use a secure cookie for the CSRF cookie.
 CSRF_COOKIE_SECURE = env('DD_CSRF_COOKIE_SECURE')
 
 if env('DD_SECURE_PROXY_SSL_HEADER'):
@@ -279,6 +381,7 @@ if env('DD_SECURE_HSTS_INCLUDE_SUBDOMAINS'):
 
 # Credential Key
 CREDENTIAL_AES_256_KEY = env('DD_CREDENTIAL_AES_256_KEY')
+DB_KEY = env('DD_CREDENTIAL_AES_256_KEY')
 
 # wkhtmltopdf settings
 WKHTMLTOPDF_PATH = env('DD_WKHTMLTOPDF')
@@ -352,6 +455,11 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'social_django.context_processors.backends',
+                'social_django.context_processors.login_redirect',
+                'dojo.context_processors.globalize_oauth_vars',
+                'dojo.context_processors.bind_system_settings',
+                'dojo.context_processors.bind_alert_count',
             ],
         },
     },
@@ -375,6 +483,7 @@ INSTALLED_APPS = (
     'gunicorn',
     'tastypie',
     'auditlog',
+    'defectDojo_engagement_survey',
     'dojo',
     'tastypie_swagger',
     'watson',
@@ -386,9 +495,11 @@ INSTALLED_APPS = (
     'rest_framework.authtoken',
     'rest_framework_swagger',
     'dbbackup',
-    'taggit_serializer',
+    # 'taggit_serializer',
     # 'axes'
     'django_celery_results',
+    'social_django',
+    'drf_yasg',
 )
 
 # ------------------------------------------------------------------------------
@@ -404,10 +515,12 @@ DJANGO_MIDDLEWARE_CLASSES = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'dojo.middleware.LoginRequiredMiddleware',
-    'dojo.middleware.TimezoneMiddleware'
+    'social_django.middleware.SocialAuthExceptionMiddleware',
+    'watson.middleware.SearchContextMiddleware',
+    'auditlog.middleware.AuditlogMiddleware',
 ]
 
-MIDDLEWARE_CLASSES = DJANGO_MIDDLEWARE_CLASSES
+MIDDLEWARE = DJANGO_MIDDLEWARE_CLASSES
 
 # WhiteNoise allows your web app to serve its own static files,
 # making it a self-contained unit that can be deployed anywhere without relying on nginx
@@ -417,7 +530,7 @@ if env('DD_WHITENOISE'):
         # https://warehouse.python.org/project/whitenoise/
         'whitenoise.middleware.WhiteNoiseMiddleware',
     ]
-    MIDDLEWARE_CLASSES = MIDDLEWARE_CLASSES + WHITE_NOISE
+    MIDDLEWARE = MIDDLEWARE + WHITE_NOISE
 
 EMAIL_CONFIG = env.email_url(
     'DD_EMAIL_URL', default='smtp://user@:password@localhost:25')
@@ -459,7 +572,124 @@ CELERY_BEAT_SCHEDULE = {
         'schedule': timedelta(minutes=1),
         'args': [timedelta(minutes=1)]
     },
+    'update-findings-from-source-issues': {
+        'task': 'dojo.tasks.async_update_findings_from_source_issues',
+        'schedule': timedelta(hours=3),
+    }
 }
+
+
+# ------------------------------------
+# Monitoring Metrics
+# ------------------------------------
+# address issue when running ./manage.py collectstatic
+# reference: https://github.com/korfuri/django-prometheus/issues/34
+PROMETHEUS_EXPORT_MIGRATIONS = False
+# django metrics for monitoring
+if env('DD_DJANGO_METRICS_ENABLED'):
+    DJANGO_METRICS_ENABLED = env('DD_DJANGO_METRICS_ENABLED')
+    INSTALLED_APPS = INSTALLED_APPS + ('django_prometheus',)
+    MIDDLEWARE = ['django_prometheus.middleware.PrometheusBeforeMiddleware', ] + \
+        MIDDLEWARE + \
+        ['django_prometheus.middleware.PrometheusAfterMiddleware', ]
+    database_engine = DATABASES.get('default').get('ENGINE')
+    DATABASES['default']['ENGINE'] = database_engine.replace('django.', 'django_prometheus.', 1)
+    # CELERY_RESULT_BACKEND.replace('django.core','django_prometheus.', 1)
+    LOGIN_EXEMPT_URLS += (r'^%sdjango_metrics/' % URL_PREFIX,)
+
+
+# ------------------------------------
+# Hashcode configuration
+# ------------------------------------
+# List of fields used to compute the hash_code
+# The fields must be one of HASHCODE_ALLOWED_FIELDS
+# If not present, default is the legacy behavior: see models.py, compute_hash_code_legacy function
+# legacy is:
+#   static scanner:  ['title', 'cwe', 'line', 'file_path', 'description']
+#   dynamic scanner: ['title', 'cwe', 'line', 'file_path', 'description', 'endpoints']
+HASHCODE_FIELDS_PER_SCANNER = {
+    # In checkmarx, same CWE may appear with different severities: example "sql injection" (high) and "blind sql injection" (low).
+    # Including the severity in the hash_code keeps those findings not duplicate
+    'Checkmarx Scan': ['cwe', 'severity', 'file_path'],
+    'SonarQube Scan': ['cwe', 'severity', 'file_path'],
+    'Dependency Check Scan': ['cve', 'file_path'],
+    # possible improvment: in the scanner put the library name into file_path, then dedup on cwe + file_path + severity
+    'NPM Audit Scan': ['title', 'severity', 'file_path', 'cve', 'cwe'],
+    # possible improvment: in the scanner put the library name into file_path, then dedup on cve + file_path + severity
+    'Whitesource Scan': ['title', 'severity', 'description'],
+    'ZAP Scan': ['cwe', 'endpoints', 'severity'],
+    'Qualys Scan': ['title', 'endpoints', 'severity'],
+    'PHP Symfony Security Check': ['title', 'cve'],
+    # for backwards compatibility because someone decided to rename this scanner:
+    'Symfony Security Check': ['title', 'cve'],
+    'DSOP Scan': ['cve'],
+}
+
+# This tells if we should accept cwe=0 when computing hash_code with a configurable list of fields from HASHCODE_FIELDS_PER_SCANNER (this setting doesn't apply to legacy algorithm)
+# If False and cwe = 0, then the hash_code computation will fallback to legacy algorithm for the concerned finding
+# Default is True (if scanner is not configured here but is configured in HASHCODE_FIELDS_PER_SCANNER, it allows null cwe)
+HASHCODE_ALLOWS_NULL_CWE = {
+    'Checkmarx Scan': False,
+    'SonarQube Scan': False,
+    'Dependency Check Scan': True,
+    'NPM Audit Scan': True,
+    'Whitesource Scan': True,
+    'ZAP Scan': False,
+    'Qualys Scan': True,
+    'DSOP Scan': True,
+}
+
+# List of fields that are known to be usable in hash_code computation)
+# 'endpoints' is a pseudo field that uses the endpoints (for dynamic scanners)
+# 'unique_id_from_tool' is often not needed here as it can be used directly in the dedupe algorithm, but it's also possible to use it for hashing
+HASHCODE_ALLOWED_FIELDS = ['title', 'cwe', 'cve', 'line', 'file_path', 'component_name', 'component_version', 'description', 'endpoints', 'unique_id_from_tool', 'severity']
+
+# ------------------------------------
+# Deduplication configuration
+# ------------------------------------
+# List of algorithms
+# legacy one with multiple conditions (default mode)
+DEDUPE_ALGO_LEGACY = 'legacy'
+# based on dojo_finding.unique_id_from_tool only (for checkmarx detailed, or sonarQube detailed for example)
+DEDUPE_ALGO_UNIQUE_ID_FROM_TOOL = 'unique_id_from_tool'
+# based on dojo_finding.hash_code only
+DEDUPE_ALGO_HASH_CODE = 'hash_code'
+# unique_id_from_tool or hash_code
+# Makes it possible to deduplicate on a technical id (same parser) and also on some functional fields (cross-parsers deduplication)
+DEDUPE_ALGO_UNIQUE_ID_FROM_TOOL_OR_HASH_CODE = 'unique_id_from_tool_or_hash_code'
+
+# Choice of deduplication algorithm per parser
+# Key = the scan_type from factory.py (= the test_type)
+# Default is DEDUPE_ALGO_LEGACY
+DEDUPLICATION_ALGORITHM_PER_PARSER = {
+    'Checkmarx Scan detailed': DEDUPE_ALGO_UNIQUE_ID_FROM_TOOL,
+    'Checkmarx Scan': DEDUPE_ALGO_HASH_CODE,
+    'SonarQube Scan detailed': DEDUPE_ALGO_UNIQUE_ID_FROM_TOOL,
+    'SonarQube Scan': DEDUPE_ALGO_HASH_CODE,
+    'Dependency Check Scan': DEDUPE_ALGO_HASH_CODE,
+    'NPM Audit Scan': DEDUPE_ALGO_HASH_CODE,
+    'Whitesource Scan': DEDUPE_ALGO_HASH_CODE,
+    'ZAP Scan': DEDUPE_ALGO_HASH_CODE,
+    'Qualys Scan': DEDUPE_ALGO_HASH_CODE,
+    'PHP Symfony Security Check': DEDUPE_ALGO_HASH_CODE,
+    # for backwards compatibility because someone decided to rename this scanner:
+    'Symfony Security Check': DEDUPE_ALGO_HASH_CODE,
+    'DSOP Scan': DEDUPE_ALGO_HASH_CODE,
+}
+
+# ------------------------------------------------------------------------------
+# JIRA
+# ------------------------------------------------------------------------------
+# The 'Bug' issue type is mandatory, as it is used as the default choice.
+JIRA_ISSUE_TYPE_CHOICES_CONFIG = (
+    ('Task', 'Task'),
+    ('Story', 'Story'),
+    ('Epic', 'Epic'),
+    ('Spike', 'Spike'),
+    ('Bug', 'Bug'),
+    ('Security', 'Security')
+)
+
 
 # ------------------------------------------------------------------------------
 # LOGGING
@@ -508,7 +738,12 @@ LOGGING = {
         },
         'dojo': {
             'handlers': ['console'],
-            'level': 'DEBUG',
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'dojo.specific-loggers.deduplication': {
+            'handlers': ['console'],
+            'level': 'INFO',
             'propagate': False,
         }
     }

@@ -1,25 +1,24 @@
-from __future__ import absolute_import
-from __future__ import unicode_literals
-
 import tempfile
 from datetime import timedelta
 from django.db.models import Count
 from django.conf import settings
 from django.core.files.base import ContentFile
-from django.core.urlresolvers import reverse
+from django.urls import reverse
 from django.template.loader import render_to_string
 from django.utils.http import urlencode
 from celery.utils.log import get_task_logger
 from celery.decorators import task
 from dojo.models import Product, Finding, Engagement, System_Settings
 from django.utils import timezone
+from dojo.signals import dedupe_signal
 
 import pdfkit
 from dojo.celery import app
-from dojo.utils import sync_dedupe, sync_false_history, calculate_grade
+from dojo.tools.tool_issue_updater import tool_issue_updater, update_findings_from_source_issues
+from dojo.utils import sync_false_history, calculate_grade
 from dojo.reports.widgets import report_widget_factory
 from dojo.utils import add_comment, add_epic, add_issue, update_epic, update_issue, \
-                       close_epic, create_notification, sync_rules
+                       close_epic, create_notification, sync_rules, fix_loop_duplicates
 
 import logging
 fmt = getattr(settings, 'LOG_FORMAT', None)
@@ -27,6 +26,7 @@ lvl = getattr(settings, 'LOG_LEVEL', logging.DEBUG)
 logging.basicConfig(format=fmt, level=lvl)
 
 logger = get_task_logger(__name__)
+deduplicationLogger = logging.getLogger("dojo.specific-loggers.deduplication")
 
 
 # Logs the error to the alerts table, which appears in the notification toolbar
@@ -148,7 +148,7 @@ def async_custom_pdf_report(self,
     selected_widgets = report_widget_factory(json_data=report.options, request=None, user=user,
                                              finding_notes=finding_notes, finding_images=finding_images, host=host)
 
-    widgets = selected_widgets.values()
+    widgets = list(selected_widgets.values())
     temp = None
 
     try:
@@ -223,6 +223,18 @@ def async_custom_pdf_report(self,
     return True
 
 
+@task(name='fix_loop_task')
+def fix_loop_task(*args, **kwargs):
+    logger.info("Executing Loop Duplicate Fix Job")
+    fix_loop_duplicates()
+
+
+@task(name='rename_whitesource_finding_task')
+def rename_whitesource_finding_task(*args, **kwargs):
+    logger.info("Executing Whitesource renaming and rehashing started.")
+    rename_whitesource_finding()
+
+
 @task(name='add_issue_task')
 def add_issue_task(find, push_to_jira):
     logger.info("add issue task")
@@ -261,8 +273,8 @@ def add_comment_task(find, note):
 
 @app.task(name='async_dedupe')
 def async_dedupe(new_finding, *args, **kwargs):
-    logger.info("running deduplication")
-    sync_dedupe(new_finding, *args, **kwargs)
+    deduplicationLogger.debug("running deduplication")
+    dedupe_signal.send(sender=new_finding.__class__, new_finding=new_finding)
 
 
 @app.task(name='applying rules')
@@ -277,21 +289,39 @@ def async_false_history(new_finding, *args, **kwargs):
     sync_false_history(new_finding, *args, **kwargs)
 
 
+@app.task(name='tool_issue_updater')
+def async_tool_issue_updater(finding, *args, **kwargs):
+    logger.info("running tool_issue_updater")
+    tool_issue_updater(finding, *args, **kwargs)
+
+
+@app.task(bind=True)
+def async_update_findings_from_source_issues(*args, **kwargs):
+    logger.info("running update_findings_from_source_issues")
+    update_findings_from_source_issues()
+
+
 @app.task(bind=True)
 def async_dupe_delete(*args, **kwargs):
-    logger.info("delete excess duplicates")
-    system_settings = System_Settings.objects.get()
-    if system_settings.delete_dupulicates:
+    try:
+        system_settings = System_Settings.objects.get()
+        enabled = system_settings.delete_dupulicates
         dupe_max = system_settings.max_dupes
+    except System_Settings.DoesNotExist:
+        enabled = False
+    if enabled:
+        logger.info("delete excess duplicates")
+        deduplicationLogger.info("delete excess duplicates")
         findings = Finding.objects \
-                .filter(duplicate_list__duplicate=True) \
-                .annotate(num_dupes=Count('duplicate_list')) \
+                .filter(original_finding__duplicate=True) \
+                .annotate(num_dupes=Count('original_finding')) \
                 .filter(num_dupes__gt=dupe_max)
         for finding in findings:
-            duplicate_list = finding.duplicate_list \
+            duplicate_list = finding.original_finding \
                     .filter(duplicate=True).order_by('date')
             dupe_count = len(duplicate_list) - dupe_max
             for finding in duplicate_list:
+                deduplicationLogger.debug('deleting finding {}:{} ({}))'.format(finding.id, finding.title, finding.hash_code))
                 finding.delete()
                 dupe_count = dupe_count - 1
                 if dupe_count == 0:

@@ -10,10 +10,9 @@ from dojo.api_v2.views import EndPointViewSet, EngagementViewSet, \
     ToolConfigurationsViewSet, ToolProductSettingsViewSet, ToolTypesViewSet, \
     UsersViewSet, ImportScanView
 
-from django.core.urlresolvers import reverse
+from django.urls import reverse
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APITestCase, APIClient
-from urlparse import urlparse
 
 
 def skipIfNotSubclass(baseclass_name):
@@ -31,8 +30,8 @@ class BaseClass():
     class RESTEndpointTest(APITestCase):
         def __init__(self, *args, **kwargs):
             APITestCase.__init__(self, *args, **kwargs)
-            self.view_mixins = map(
-                (lambda x: x.__name__), self.viewset.__bases__)
+            self.view_mixins = list(map(
+                (lambda x: x.__name__), self.viewset.__bases__))
 
         def setUp(self):
             testuser = User.objects.get(username='admin')
@@ -43,6 +42,11 @@ class BaseClass():
 
         @skipIfNotSubclass('ListModelMixin')
         def test_list(self):
+
+            if hasattr(self.endpoint_model, 'tags') and self.payload:
+                # create a new instance first to make sure there's at least 1 instance with tags set by payload to trigger tag handling code
+                response = self.client.post(self.url, self.payload)
+
             response = self.client.get(self.url, format='json')
             self.assertEqual(200, response.status_code)
 
@@ -73,7 +77,7 @@ class BaseClass():
             relative_url = self.url + '%s/' % current_objects['results'][0]['id']
             response = self.client.patch(
                 relative_url, self.update_fields)
-            for key, value in self.update_fields.iteritems():
+            for key, value in self.update_fields.items():
                 self.assertEqual(value, response.data[key])
             response = self.client.put(
                 relative_url, self.payload)
@@ -94,6 +98,7 @@ class EndpointTest(BaseClass.RESTEndpointTest):
             'query': 'test=true',
             'fragment': 'test-1',
             'product': 1,
+            "tags": ["mytag", "yourtag"]
         }
         self.update_fields = {'protocol': 'ftp'}
         BaseClass.RESTEndpointTest.__init__(self, *args, **kwargs)
@@ -146,6 +151,7 @@ class FindingsTest(BaseClass.RESTEndpointTest):
             "mitigation": "MITIGATION",
             "impact": "HIGH",
             "references": "",
+            "reporter": 3,
             "is_template": False,
             "active": False,
             "verified": False,
@@ -179,7 +185,7 @@ class FindingTemplatesTest(BaseClass.RESTEndpointTest):
             "description": "test template",
             "mitigation": "None",
             "impact": "MEDIUM",
-            "references": ""
+            "references": "",
         }
         self.update_fields = {'references': 'some reference'}
         BaseClass.RESTEndpointTest.__init__(self, *args, **kwargs)
@@ -200,6 +206,7 @@ class JiraConfigurationsTest(BaseClass.RESTEndpointTest):
             "epic_name_id": 1111,
             "open_status_key": 111,
             "close_status_key": 111,
+            "info_mapping_severity": "LOW",
             "low_mapping_severity": "LOW",
             "medium_mapping_severity": "LOW",
             "high_mapping_severity": "LOW",
@@ -262,7 +269,7 @@ class ProductTest(BaseClass.RESTEndpointTest):
             "prod_type": 1,
             "name": "Test Product",
             "description": "test product",
-            "tags": ["mytag"]
+            "tags": ["mytag", "yourtag"]
         }
         self.update_fields = {'prod_type': 2}
         BaseClass.RESTEndpointTest.__init__(self, *args, **kwargs)
@@ -334,6 +341,7 @@ class TestsTest(BaseClass.RESTEndpointTest):
             "target_end": "2017-01-12T00:00",
             "percent_complete": 0,
             "lead": 2,
+            "tags": []
         }
         self.update_fields = {'percent_complete': 100}
         BaseClass.RESTEndpointTest.__init__(self, *args, **kwargs)
@@ -481,6 +489,7 @@ class ImportScanTest(BaseClass.RESTEndpointTest):
             "file": open('tests/zap_sample.xml'),
             "engagement": 1,
             "lead": 2,
+            "tags": ["'ci/cd, api"]
         }
         BaseClass.RESTEndpointTest.__init__(self, *args, **kwargs)
 
@@ -489,10 +498,10 @@ class ReimportScanTest(APITestCase):
     fixtures = ['dojo_testdata.json']
 
     def setUp(self):
-            testuser = User.objects.get(username='admin')
-            token = Token.objects.get(user=testuser)
-            self.client = APIClient()
-            self.client.credentials(HTTP_AUTHORIZATION='Token ' + token.key)
+        testuser = User.objects.get(username='admin')
+        token = Token.objects.get(user=testuser)
+        self.client = APIClient()
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + token.key)
 
     def test_import_zap_xml(self):
         length = Test.objects.all().count()

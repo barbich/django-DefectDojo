@@ -8,7 +8,7 @@ travis_fold() {
 build_containers() {
   # Build Docker images
   travis_fold start docker_image_build
-  DOCKER_IMAGES=(build django nginx)
+  DOCKER_IMAGES=(django nginx)
   for docker_image in "${DOCKER_IMAGES[@]}"
   do
     docker build \
@@ -17,7 +17,7 @@ build_containers() {
       .
     return_value=${?}
     if [ ${return_value} -ne 0 ]; then
-      echo "ERROR: cannot build ${docker_image} image"
+      (>&2 echo "ERROR: cannot build '${docker_image}' image")
       exit ${return_value}
     fi
   done
@@ -70,12 +70,65 @@ if [ -z "${TEST}" ]; then
   # Update Helm dependencies for DefectDojo
   sudo helm dependency update ./helm/defectdojo
 
+  # Set Helm settings for the broker
+  case "${BROKER}" in 
+    rabbitmq)
+      HELM_BROKER_SETTINGS=" \
+        --set redis.enabled=false \
+        --set rabbitmq.enabled=true \
+        --set celery.broker=rabbitmq \
+        --set createRabbitMqSecret=true \
+      "
+      ;;
+    redis)
+      HELM_BROKER_SETTINGS=" \
+        --set redis.enabled=true \
+        --set rabbitmq.enabled=false \
+        --set celery.broker=redis \
+        --set createRedisSecret=true \
+      "
+      ;;
+    *)
+      (>&2 echo "ERROR: 'BROKER' must be 'redis' or 'rabbitmq'")
+      exit 1
+      ;;
+  esac
+
+  # Set Helm settings for the database
+  case "${DATABASE}" in
+    mysql)
+      HELM_DATABASE_SETTINGS=" \
+        --set database=mysql \
+        --set postgresql.enabled=false \
+        --set mysql.enabled=true \
+        --set createMysqlSecret=true \
+      "
+      ;;
+    postgresql)
+      HELM_DATABASE_SETTINGS=" \
+        --set database=postgresql \
+        --set postgresql.enabled=true \
+        --set mysql.enabled=false \
+        --set createPostgresqlSecret=true \
+      "
+      ;;
+    *)
+      (>&2 echo "ERROR: 'DATABASE' must be 'mysql' or 'postgresql'")
+      exit 1
+      ;;
+  esac
+
   # Install DefectDojo into Kubernetes and wait for it
   sudo helm install \
     ./helm/defectdojo \
     --name=defectdojo \
     --set django.ingress.enabled=false \
-    --set imagePullPolicy=Never
+    --set imagePullPolicy=Never \
+    ${HELM_BROKER_SETTINGS} \
+    ${HELM_DATABASE_SETTINGS} \
+    --set createSecret=true
+
+
   echo -n "Waiting for DefectDojo to become ready "
   i=0
   # Timeout value so that the wait doesn't timeout the travis build (faster fail)
@@ -130,7 +183,7 @@ echo "Running test ${TEST}"
           echo "Running Flake8 tests on dev branch aka pull requests"
           # We need to checkout dev for flake8-diff to work properly
           git checkout dev
-          sudo pip install pep8 flake8 flake8-diff
+          sudo pip3 install pep8 flake8 flake8-diff
           flake8-diff
       else
           echo "Skipping because not on dev branch"
@@ -139,14 +192,32 @@ echo "Running test ${TEST}"
     docker)
       echo "Validating docker compose"
       build_containers
-      docker-compose -f docker-compose_base.yml -f docker-compose_uwsgi-release.yml up -d
+      docker-compose up -d
       echo "Waiting for services to start"
       # Wait for services to become available
       sleep 80
       echo "Testing DefectDojo Service"
       curl -s -o "/dev/null" http://localhost:8080 -m 120
+      CR=$(curl -s -m 10 -I http://localhost:8080/login?next= | egrep "^HTTP" | cut  -d' ' -f2)
+      if [ "$CR" != 200 ]; then
+        echo "ERROR: cannot display login screen; got HTTP code $CR"
+        docker-compose logs  --tail="all" uwsgi
+        exit 1
+      fi
       echo "Docker compose container status"
-      docker-compose -f docker-compose_base.yml -f docker-compose_uwsgi-release.yml ps
+      docker-compose -f docker-compose.yml ps
+      ;;
+    integration_tests)
+      echo "run integration_test scripts"
+      # change user id withn Docker container to user id of travis user
+      sed -i -e "s/USER\ 1001/USER\ `id -u`/g" ./Dockerfile.django
+      cp ./dojo/settings/settings.dist.py ./dojo/settings/settings.py
+      # incase of failure and you need to debug
+      # change the 'release' mode to 'dev' mode in order to activate debug=True
+      # make sure you remember to change back to 'release' before making a PR
+      source ./docker/setEnv.sh release
+      docker-compose build
+      source ./travis/integration_test-script.sh
       ;;
     snyk)
       echo "Snyk security testing on containers"

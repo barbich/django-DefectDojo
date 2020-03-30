@@ -1,30 +1,13 @@
-from selenium import webdriver
 from selenium.webdriver.support.ui import Select
 from selenium.common.exceptions import NoSuchElementException
 from selenium.common.exceptions import NoAlertPresentException
 import unittest
 import re
-import os
 import sys
+from base_test_class import BaseTestCase
 
 
-class DojoTests(unittest.TestCase):
-    def setUp(self):
-        self.driver = webdriver.Chrome('chromedriver')
-        self.driver.implicitly_wait(30)
-        self.base_url = "http://localhost:8000/"
-        self.verificationErrors = []
-        self.accept_next_alert = True
-
-    def login_page(self):
-        driver = self.driver
-        driver.get(self.base_url + "login")
-        driver.find_element_by_id("id_username").clear()
-        driver.find_element_by_id("id_username").send_keys(os.environ['DOJO_ADMIN_USER'])
-        driver.find_element_by_id("id_password").clear()
-        driver.find_element_by_id("id_password").send_keys(os.environ['DOJO_ADMIN_PASSWORD'])
-        driver.find_element_by_css_selector("button.btn.btn-success").click()
-        return driver
+class DojoTests(BaseTestCase):
 
     def test_login(self):
         driver = self.login_page()
@@ -115,10 +98,6 @@ class DojoTests(unittest.TestCase):
         finally:
             self.accept_next_alert = True
 
-    def tearDown(self):
-        self.driver.quit()
-        self.assertEqual([], self.verificationErrors)
-
 
 def suite():
     suite = unittest.TestSuite()
@@ -127,6 +106,7 @@ def suite():
 
 
 if __name__ == "__main__":
-    runner = unittest.TextTestRunner(descriptions=True, failfast=True)
+    runner = unittest.TextTestRunner(descriptions=True, failfast=True, verbosity=2)
     ret = not runner.run(suite()).wasSuccessful()
+    BaseTestCase.tearDownDriver()
     sys.exit(ret)

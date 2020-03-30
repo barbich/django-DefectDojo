@@ -154,7 +154,7 @@ function punchcard(element, data, ticks) {
             bubbles: {
                 active: true,
                 debug: {
-                    active: false
+                    active: true
                 },
                 show: true,
                 bubblelabel: {
@@ -200,12 +200,9 @@ function punchcard(element, data, ticks) {
             content: function (label, xval, yval, flotItem) {
                 for (var x = 0; x < flotItem.series.data.length; x++) {
                     if (xval == flotItem.series.data[x][0] && yval == flotItem.series.data[x][1]) {
-                        yeah = Math.ceil(flotItem.series.data[x][2] * highest_count);
+                        yeah = flotItem.series.data[x][3];
                         break;
                     }
-                }
-                if (yeah <= 0) {
-                    return;
                 }
                 return yeah + ' Findings';
             },
@@ -245,3 +242,55 @@ function togglePassVisibility() {
     }
 } 
 
+function asciidocDownload() {
+    var content = document.getElementById('base-content')
+    var element = document.createElement('a');
+    element.setAttribute('href', 'data:text/plain;charset=utf-8,' + 
+        encodeURIComponent(content.innerText.slice(16)));
+    element.setAttribute('download', 'asciidoc-report.txt');
+  
+    element.style.display = 'none';
+    document.body.appendChild(element);
+  
+    element.click();
+  
+    document.body.removeChild(element);
+  }
+
+
+// Parse a string that contains HTML to retrieve value from the HTML tag or Attribute, returning only a TEXT version.
+// The htmlTagAttributValye is optional, and if supplied, then this function will look within the HTML tag attributes to
+// return the value. Example htmlTagAttributValye ( data-content=****** )
+// This function is used in the product.html,  view_product_details adn engagements_all for proper DataTables exports.
+function getDojoExportValueFromTag(htmlString, tag, htmlTagAttribValue){
+    parser = new DOMParser();
+    doc = parser.parseFromString(htmlString.toString(), "text/html");
+    var tags = doc.getElementsByTagName(tag.toString());
+    var l = tags.length;
+    var tagsValueArray = [];
+    var exportValue = "";
+    if (htmlTagAttribValue) {
+        for (i = 0; i < l; i++) {
+            var tempAttribValue = tags[i].getAttribute(htmlTagAttribValue.toString());
+            // Only append values if they are not null, empty or NaN
+            if (tempAttribValue) {
+                tagsValueArray.push(tempAttribValue);
+            }
+        }
+        exportValue = tagsValueArray;
+    }
+    else {
+        if (l >= 1) {
+            // Iterate through all HTML tags and append the return values to the array
+            for (i = 0; i < l; i++) {
+                tagsValueArray.push(tags[i].textContent);
+            }
+            exportValue = tagsValueArray;
+        }
+    else {
+        exportValue = htmlString;
+    }}
+
+    // Replace by a space any HTML tags that might still be in the string
+    return exportValue.toString().replace(/<\/?[^>]+(>|$)/g, " ");
+}

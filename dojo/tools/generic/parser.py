@@ -1,10 +1,10 @@
-import StringIO
+import io
 import csv
 import hashlib
 from dojo.models import Finding, Endpoint
 from dateutil.parser import parse
 import re
-from urlparse import urlparse
+from urllib.parse import urlparse
 import socket
 
 
@@ -295,21 +295,23 @@ class GenericFindingUploadCsvParser(object):
             self.column_names[index] = column
             index += 1
 
-    def __init__(self, filename, test):
+    def __init__(self, filename, test, active, verified):
         self.chain = None
         self.column_names = dict()
         self.dupes = dict()
         self.items = ()
         self.create_chain()
-
+        self.active = active
+        self.verified = verified
         if filename is None:
             self.items = ()
             return
 
         content = filename.read()
-
+        if type(content) is bytes:
+            content = content.decode('utf-8')
         row_number = 0
-        reader = csv.reader(StringIO.StringIO(content), delimiter=',', quotechar='"')
+        reader = csv.reader(io.StringIO(content), delimiter=',', quotechar='"')
         for row in reader:
             finding = Finding(test=test)
 
@@ -321,14 +323,23 @@ class GenericFindingUploadCsvParser(object):
             column_number = 0
             for column in row:
                 self.chain.process_column(self.column_names[column_number], column, finding)
+
                 column_number += 1
 
+            if self.active:
+                finding.active = ActiveColumnMappingStrategy.evaluate_bool_value(row[9])
+            else:
+                finding.active = False
+            if self.verified:
+                finding.verified = VerifiedColumnMappingStrategy.evaluate_bool_value(row[10])
+            else:
+                finding.verified = False
             if finding is not None:
-                key = hashlib.md5(finding.severity + '|' + finding.title + '|' + finding.description).hexdigest()
+                key = hashlib.md5((finding.severity + '|' + finding.title + '|' + finding.description).encode("utf-8")).hexdigest()
 
                 if key not in self.dupes:
                     self.dupes[key] = finding
 
             row_number += 1
 
-        self.items = self.dupes.values()
+        self.items = list(self.dupes.values())

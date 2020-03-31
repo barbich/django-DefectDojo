@@ -46,14 +46,8 @@ RUN \
   apt-get clean && \
   rm -rf /var/lib/apt/lists && \
   true
-<<<<<<< HEAD
-RUN pip install --no-cache-dir --upgrade pip
-# COPY --from=defectdojo/defectdojo-build:latest /tmp/wheels /tmp/wheels
-COPY --from=defectdojo/defectdojo-build:latest /tmp/wheels /tmp/wheels
-=======
 RUN pip3 install --no-cache-dir --upgrade pip
 COPY --from=build /tmp/wheels /tmp/wheels
->>>>>>> upstream/dev
 COPY requirements.txt ./
 RUN pip3 install \
 	--no-cache-dir \
@@ -109,12 +103,7 @@ ENV \
   DD_INITIALIZE=true \
   DD_UWSGI_MODE="socket" \
   DD_UWSGI_ENDPOINT="0.0.0.0:3031" \
-<<<<<<< HEAD
-  DD_DJANGO_ADMIN_ENABLED="on" \
-  DD_TRACK_MIGRATIONS="on"
-=======
   DD_DJANGO_ADMIN_ENABLED="True" \
   DD_TRACK_MIGRATIONS="True" \
   DD_DJANGO_METRICS_ENABLED="False"
->>>>>>> upstream/dev
 ENTRYPOINT ["/entrypoint-uwsgi.sh"]

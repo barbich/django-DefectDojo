@@ -76,6 +76,10 @@ from dojo.tools.burp_enterprise.parser import BurpEnterpriseHtmlParser
 from dojo.tools.anchore_enterprise.parser import AnchoreEnterprisePolicyCheckParser
 from dojo.tools.gitleaks.parser import GitleaksJSONParser
 from dojo.tools.harbor_vulnerability.parser import HarborVulnerabilityParser
+from dojo.tools.choctaw_hog.parser import ChoctawhogParser
+from dojo.tools.gitlab_sast.parser import GitlabSastReportParser
+
+
 
 
 __author__ = 'Jay Paz'
@@ -247,6 +251,10 @@ def import_parser_factory(file, test, active, verified, scan_type=None):
         parser = GitleaksJSONParser(file, test)
     elif scan_type == 'Harbor Vulnerability Scan':
         parser = HarborVulnerabilityParser(file, test)
+    elif scan_type == 'Choctaw Hog Scan':
+        parser = ChoctawhogParser(file, test)
+    elif scan_type == 'GitLab SAST Report':
+        parser = GitlabSastReportParser(file, test)
     else:
         raise ValueError('Unknown Test Type')
 
